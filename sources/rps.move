@@ -4,7 +4,7 @@ use std::hash;
 use sui::coin::Coin;
 use sui::sui::SUI;
 
-public struct Game has key {
+public struct Game has key, store {
     id: UID,
     player1: address,
     player2: address,
@@ -20,18 +20,20 @@ public fun create_game(
     player2: address,
     bet: u64,
     ctx: &mut TxContext
-): Game {
-    Game {
+) {
+    let game = Game {
         id: sui::object::new(ctx),
         player1: sui::tx_context::sender(ctx),
         player2,
         bet,
         player1_commit: b"",
         player2_commit: b"",
-        player1_choice: 255, // not revealed
+        player1_choice: 255,
         player2_choice: 255,
         finished: false,
-    }
+    };
+    
+    sui::transfer::public_transfer(game, sui::tx_context::sender(ctx));
 }
 
 public fun commit_choice(game: &mut Game, commit: vector<u8>, ctx: &TxContext) {
