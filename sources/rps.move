@@ -1,108 +1,64 @@
 module rps::rock_paper_scissors;
 
-use std::hash;
-use sui::coin::Coin;
-use sui::sui::SUI;
+use sui::{
+    random::Random,
+    event,
+};
 
-public struct Game has key, store {
-    id: UID,
-    player1: address,
-    player2: address,
-    bet: u64,
-    player1_commit: vector<u8>, // hash of choice+secret
-    player2_commit: vector<u8>, // hash of choice+secret
-    player1_choice: u8, // revealed later: 0=rock,1=paper,2=scissors
-    player2_choice: u8,
-    finished: bool,
+/// Struct to store game result
+public struct GameResult has copy, drop, store {
+    player: address,
+    player_choice: u8,
+    opponent_choice: u8,
+    outcome: u8,
 }
+const INVALID_CHOICE: u64 = 1;
+const DRAW: u8 = 0;
+const WIN: u8 = 1;
+const LOSS: u8 = 2;
 
-public fun create_game(
-    player2: address,
-    bet: u64,
+// === Public-Mutative Functions ===
+
+/// Play a game of Rock-Paper-Scissors
+entry fun play(
+    random: &Random,
+    player_choice: u8,
     ctx: &mut TxContext
 ) {
-    let game = Game {
-        id: sui::object::new(ctx),
-        player1: sui::tx_context::sender(ctx),
-        player2,
-        bet,
-        player1_commit: b"",
-        player2_commit: b"",
-        player1_choice: 255,
-        player2_choice: 255,
-        finished: false,
-    };
-    
-    sui::transfer::public_transfer(game, sui::tx_context::sender(ctx));
+    assert!(player_choice >= 1 && player_choice <= 3, INVALID_CHOICE);
+
+    let opponent_choice = generate_choice(random, ctx);
+    let outcome = determine_outcome(player_choice, opponent_choice);
+    let player = ctx.sender();
+
+    event::emit(GameResult {
+        player,
+        player_choice,
+        opponent_choice,
+        outcome,
+    });
 }
 
-public fun commit_choice(game: &mut Game, commit: vector<u8>, ctx: &TxContext) {
-    let sender = sui::tx_context::sender(ctx);
-    if (sender == game.player1) {
-        game.player1_commit = commit;
-    } else if (sender == game.player2) {
-        game.player2_commit = commit;
+// === Private Functions ===
+
+/// Generate the opponent's random choice (1: Rock, 2: Paper, 3: Scissors)
+fun generate_choice(random: &Random, ctx: &mut TxContext): u8 {
+    let mut gen = random.new_generator(ctx);
+    (gen.generate_u64() % 3 + 1) as u8
+}
+
+/// Determine the outcome of the game
+fun determine_outcome(player_choice: u8, opponent_choice: u8): u8 {
+    // Determine outcome
+    if (player_choice == opponent_choice) {
+        DRAW
+    } else if (
+            (player_choice == 1 && opponent_choice == 3) || // Rock beats Scissors
+            (player_choice == 2 && opponent_choice == 1) || // Paper beats Rock
+            (player_choice == 3 && opponent_choice == 2)    // Scissors beats Paper
+    ) {
+        WIN
     } else {
-        abort 1 // not part of game
+        LOSS
     }
-}
-
-public fun reveal_choice(game: &mut Game, choice: u8, secret: vector<u8>, ctx: &TxContext) {
-    let sender = sui::tx_context::sender(ctx);
-    let mut data = vector::empty<u8>();
-    vector::push_back(&mut data, choice);
-    vector::append(&mut data, secret);
-
-    let hash_val = hash::sha3_256(data);
-
-    if (sender == game.player1) {
-        assert!(hash_val == game.player1_commit, 2);
-        game.player1_choice = choice;
-    } else if (sender == game.player2) {
-        assert!(hash_val == game.player2_commit, 3);
-        game.player2_choice = choice;
-    } else {
-        abort 4
-    }
-}
-
-public fun settle(
-    game: &mut Game,
-    mut p1_coin: Coin<SUI>,
-    mut p2_coin: Coin<SUI>,
-    _ctx: &mut TxContext
-) {
-    assert!(!game.finished, 5);
-
-    // ensure both revealed
-    assert!(game.player1_choice <= 2, 6);
-    assert!(game.player2_choice <= 2, 7);
-
-    let outcome = winner(game.player1_choice, game.player2_choice);
-
-    if (outcome == 0) {
-        // draw → refund both
-        sui::transfer::public_transfer(p1_coin, game.player1);
-        sui::transfer::public_transfer(p2_coin, game.player2);
-    } else if (outcome == 1) {
-        // player1 wins
-        sui::coin::join(&mut p1_coin, p2_coin);
-        sui::transfer::public_transfer(p1_coin, game.player1);
-    } else {
-        // player2 wins
-        sui::coin::join(&mut p2_coin, p1_coin);
-        sui::transfer::public_transfer(p2_coin, game.player2);
-    };
-
-    game.finished = true;
-}
-
-fun winner(choice1: u8, choice2: u8): u8 {
-    if (choice1 == choice2) return 0; // draw
-    if ((choice1 == 0 && choice2 == 2) ||
-        (choice1 == 1 && choice2 == 0) ||
-        (choice1 == 2 && choice2 == 1)) {
-        return 1 // player1 wins
-    };
-    2 // player2 wins
 }
