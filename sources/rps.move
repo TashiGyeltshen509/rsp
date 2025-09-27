@@ -1,12 +1,10 @@
 module rps::rock_paper_scissors;
 
 use std::hash;
-use sui::object::{Self, UID};
-use sui::tx_context::{Self, TxContext};
-use sui::coin::{Self, Coin};
+use sui::coin::Coin;
 use sui::sui::SUI;
 
-struct Game has key {
+public struct Game has key {
     id: UID,
     player1: address,
     player2: address,
@@ -24,8 +22,8 @@ public fun create_game(
     ctx: &mut TxContext
 ): Game {
     Game {
-        id: object::new(ctx),
-        player1: tx_context::sender(ctx),
+        id: sui::object::new(ctx),
+        player1: sui::tx_context::sender(ctx),
         player2,
         bet,
         player1_commit: b"",
@@ -37,23 +35,23 @@ public fun create_game(
 }
 
 public fun commit_choice(game: &mut Game, commit: vector<u8>, ctx: &TxContext) {
-    let sender = tx_context::sender(ctx);
+    let sender = sui::tx_context::sender(ctx);
     if (sender == game.player1) {
         game.player1_commit = commit;
     } else if (sender == game.player2) {
         game.player2_commit = commit;
     } else {
-        abort 1; // not part of game
+        abort 1 // not part of game
     }
 }
 
 public fun reveal_choice(game: &mut Game, choice: u8, secret: vector<u8>, ctx: &TxContext) {
-    let sender = tx_context::sender(ctx);
+    let sender = sui::tx_context::sender(ctx);
     let mut data = vector::empty<u8>();
     vector::push_back(&mut data, choice);
     vector::append(&mut data, secret);
 
-    let hash_val = hash::sha3_256(&data);
+    let hash_val = hash::sha3_256(data);
 
     if (sender == game.player1) {
         assert!(hash_val == game.player1_commit, 2);
@@ -62,7 +60,7 @@ public fun reveal_choice(game: &mut Game, choice: u8, secret: vector<u8>, ctx: &
         assert!(hash_val == game.player2_commit, 3);
         game.player2_choice = choice;
     } else {
-        abort 4;
+        abort 4
     }
 }
 
@@ -70,7 +68,7 @@ public fun settle(
     game: &mut Game,
     mut p1_coin: Coin<SUI>,
     mut p2_coin: Coin<SUI>,
-    ctx: &mut TxContext
+    _ctx: &mut TxContext
 ) {
     assert!(!game.finished, 5);
 
@@ -82,16 +80,16 @@ public fun settle(
 
     if (outcome == 0) {
         // draw → refund both
-        coin::transfer(&mut p1_coin, game.player1);
-        coin::transfer(&mut p2_coin, game.player2);
+        sui::transfer::public_transfer(p1_coin, game.player1);
+        sui::transfer::public_transfer(p2_coin, game.player2);
     } else if (outcome == 1) {
         // player1 wins
-        let total = coin::merge(&mut p1_coin, p2_coin);
-        coin::transfer(&total, game.player1);
+        sui::coin::join(&mut p1_coin, p2_coin);
+        sui::transfer::public_transfer(p1_coin, game.player1);
     } else {
         // player2 wins
-        let total = coin::merge(&mut p2_coin, p1_coin);
-        coin::transfer(&total, game.player2);
+        sui::coin::join(&mut p2_coin, p1_coin);
+        sui::transfer::public_transfer(p2_coin, game.player2);
     };
 
     game.finished = true;
@@ -102,7 +100,7 @@ fun winner(choice1: u8, choice2: u8): u8 {
     if ((choice1 == 0 && choice2 == 2) ||
         (choice1 == 1 && choice2 == 0) ||
         (choice1 == 2 && choice2 == 1)) {
-        return 1; // player1 wins
+        return 1 // player1 wins
     };
     2 // player2 wins
 }
